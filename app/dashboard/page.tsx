@@ -207,7 +207,7 @@ export default function DashboardPage() {
                     {remainingPercent.toFixed(0)}%
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Rs.{Math.max(remaining, 0).toFixed(0)} left
+                    Rs.{Math.max(remaining, 0).toLocaleString()} remaining this month
                   </p>
                 </div>
               </div>

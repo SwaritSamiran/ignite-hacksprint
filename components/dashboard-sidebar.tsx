@@ -407,7 +407,7 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
   const projectedAnnual = projectedMonthlySavings * 12;
   const monthsToGoal = projectedMonthlySavings > 0 ? Math.ceil(savingsTarget / projectedMonthlySavings) : Infinity;
   const savingsRate = monthlyIncome > 0 ? ((projectedMonthlySavings / monthlyIncome) * 100) : 0;
-  const dailyBudgetLeft = Math.max((monthlyBudget - monthTotal) / daysRemaining, 0);
+  const budgetRemaining = Math.max(monthlyBudget - monthTotal, 0);
   const budgetUsedPct = monthlyBudget > 0 ? ((monthTotal / monthlyBudget) * 100) : 0;
 
   // Behavioral insights
@@ -518,12 +518,16 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
                   <span className="font-bold text-primary">Rs.{projectedAnnual >= 100000 ? `${(projectedAnnual / 100000).toFixed(1)}L` : `${(projectedAnnual / 1000).toFixed(0)}K`}</span>
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Daily budget remaining</span>
-                  <span className="font-bold text-foreground">Rs.{dailyBudgetLeft.toFixed(0)}/day</span>
+                  <span>Monthly income</span>
+                  <span className="font-bold text-foreground">Rs.{monthlyIncome.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Monthly budget remaining</span>
+                  <span className={`font-bold ${budgetRemaining <= 0 ? 'text-destructive' : 'text-foreground'}`}>Rs.{Math.round(budgetRemaining).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>Projected month-end spending</span>
-                  <span className={`font-bold ${projectedMonthSpending > monthlyBudget ? 'text-destructive' : 'text-primary'}`}>Rs.{projectedMonthSpending.toFixed(0)}</span>
+                  <span className={`font-bold ${projectedMonthSpending > monthlyBudget ? 'text-destructive' : 'text-primary'}`}>Rs.{Math.round(projectedMonthSpending).toLocaleString()}</span>
                 </div>
               </div>
             </div>

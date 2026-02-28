@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     const projectedSpend = Math.round((monthTotal / Math.max(daysElapsed, 1)) * daysInMonth);
     const projectedSave = Math.max(monthlyIncome - projectedSpend, 0);
     const daysLeft = Math.max(daysInMonth - daysElapsed, 1);
-    const dailyBudgetLeft = Math.round(Math.max((monthlyBudget - monthTotal) / daysLeft, 0));
+    const budgetRemaining = Math.max(monthlyBudget - monthTotal, 0);
     const randomSeed = Math.floor(Math.random() * 10000);
 
     const catStr = Object.entries(categoryBreakdown || {})
@@ -54,8 +54,8 @@ USER'S FINANCIAL SNAPSHOT:
 - Monthly budget limit: Rs.${monthlyBudget.toLocaleString()}
 - Spent so far: Rs.${monthTotal.toLocaleString()} (${budgetPct}% of budget used)
 - Days: ${daysElapsed} of ${daysInMonth} elapsed (${daysLeft} remaining)
+- Monthly budget remaining: Rs.${budgetRemaining.toLocaleString()}
 - Daily average spending: Rs.${dailyAvg.toLocaleString()}
-- Daily budget remaining: Rs.${dailyBudgetLeft.toLocaleString()}/day
 - Projected month-end spending: Rs.${projectedSpend.toLocaleString()}
 - Projected monthly savings: Rs.${projectedSave.toLocaleString()}
 - Category breakdown: ${catStr || 'no expenses yet'}
