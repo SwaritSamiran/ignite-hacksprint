@@ -287,6 +287,9 @@ function CalendarPanel() {
 }
 
 function InsightsOverlay({ onClose }: { onClose: () => void }) {
+  const [gemmaAnalysis, setGemmaAnalysis] = useState<any>(null);
+  const [gemmaLoading, setGemmaLoading] = useState(true);
+
   const data = useMemo(() => {
     const userEmail = localStorage.getItem('finguard_currentUser');
     if (!userEmail) return null;
@@ -294,6 +297,25 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
     const profile = JSON.parse(localStorage.getItem(`finguard_profile_${userEmail}`) || '{}');
     return { expenses, profile, userEmail };
   }, []);
+
+  useEffect(() => {
+    if (!data || data.expenses.length === 0) { setGemmaLoading(false); return; }
+    const { expenses: exps, profile: prof } = data;
+    const inc = parseInt(prof.monthlyIncome || '50000');
+    const bud = parseInt(prof.monthlyBudget || '30000');
+    const n = new Date();
+    const mExps = exps.filter((e: any) => { const d = new Date(e.date); return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear(); });
+    const mTot = mExps.reduce((s: number, e: any) => s + e.amount, 0);
+    const dim = new Date(n.getFullYear(), n.getMonth() + 1, 0).getDate();
+    const de = Math.max(n.getDate(), 1);
+    const cats: Record<string, number> = {};
+    mExps.forEach((e: any) => { cats[e.category] = (cats[e.category] || 0) + e.amount; });
+    fetch('/api/insights', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ monthlyIncome: inc, monthlyBudget: bud, monthTotal: mTot, categoryBreakdown: cats, daysElapsed: de, daysInMonth: dim, savingsGoal: prof.savingsGoal || 'emergency', savingsTarget: parseInt(prof.savingsTarget || '100000'), transactionCount: mExps.length }),
+    }).then(r => r.json()).then(r => setGemmaAnalysis(r)).catch(() => {}).finally(() => setGemmaLoading(false));
+  }, [data]);
 
   if (!data || data.expenses.length === 0) {
     return (
@@ -374,20 +396,19 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
     return { time: label, amount: total };
   });
 
-  // Savings tracker — project full month spending based on days elapsed
+  // Savings tracker — project full month using actual spending pace
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const daysElapsed = Math.max(now.getDate(), 1);
-  const daysRemaining = daysInMonth - daysElapsed;
+  const daysRemaining = Math.max(daysInMonth - daysElapsed, 1); // at least 1 to avoid division by zero
   const projectedMonthSpending = (monthTotal / daysElapsed) * daysInMonth;
-  const projectedMonthlySavings = monthlyIncome - projectedMonthSpending;
-  const monthlySavings = monthlyIncome - monthlyBudget; // planned savings = income - budget
+  const projectedMonthlySavings = Math.max(monthlyIncome - projectedMonthSpending, 0);
   const savingsTarget = parseInt(profile.savingsTarget || '100000');
   const savingsGoal = profile.savingsGoal || 'emergency';
-  const estimatedMonthlySave = Math.max(monthlySavings, 0);
-  const projectedAnnual = estimatedMonthlySave * 12;
-  const monthsToGoal = estimatedMonthlySave > 0 ? Math.ceil(savingsTarget / estimatedMonthlySave) : Infinity;
-  const savingsRate = monthlyIncome > 0 ? ((estimatedMonthlySave / monthlyIncome) * 100) : 0;
-  const dailyBudgetLeft = daysRemaining > 0 ? Math.max((monthlyBudget - monthTotal) / daysRemaining, 0) : 0;
+  const projectedAnnual = projectedMonthlySavings * 12;
+  const monthsToGoal = projectedMonthlySavings > 0 ? Math.ceil(savingsTarget / projectedMonthlySavings) : Infinity;
+  const savingsRate = monthlyIncome > 0 ? ((projectedMonthlySavings / monthlyIncome) * 100) : 0;
+  const dailyBudgetLeft = Math.max((monthlyBudget - monthTotal) / daysRemaining, 0);
+  const budgetUsedPct = monthlyBudget > 0 ? ((monthTotal / monthlyBudget) * 100) : 0;
 
   // Behavioral insights
   const insights: string[] = [];
@@ -397,18 +418,18 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
   const peakTime = [...timeData].sort((a, b) => b.amount - a.amount)[0];
   if (peakTime && peakTime.amount > 0) insights.push(`Peak spending window: ${peakTime.time}. Be extra mindful during this period.`);
 
-  const avgDaily = monthTotal / daysElapsed;
-  const projectedMonth = avgDaily * daysInMonth;
-  if (projectedMonth > monthlyBudget) {
-    insights.push(`At current pace, you'll spend Rs.${projectedMonth.toFixed(0)} this month — over budget by Rs.${(projectedMonth - monthlyBudget).toFixed(0)}.`);
+  if (projectedMonthSpending > monthlyBudget) {
+    insights.push(`At current pace, projected: Rs.${Math.round(projectedMonthSpending).toLocaleString()} — over budget by Rs.${Math.round(projectedMonthSpending - monthlyBudget).toLocaleString()}.`);
   } else {
-    insights.push(`On track to finish at Rs.${projectedMonth.toFixed(0)} — Rs.${(monthlyBudget - projectedMonth).toFixed(0)} under budget.`);
+    insights.push(`On track: Rs.${Math.round(projectedMonthSpending).toLocaleString()} projected vs Rs.${monthlyBudget.toLocaleString()} budget — Rs.${Math.round(monthlyBudget - projectedMonthSpending).toLocaleString()} under.`);
   }
 
-  if (savingsRate < 10) insights.push(`Planned savings rate at ${savingsRate.toFixed(0)}%. Aim for 20%+ for financial health.`);
-  else if (savingsRate >= 30) insights.push(`Strong ${savingsRate.toFixed(0)}% savings rate. You're building wealth.`);
+  if (savingsRate < 10) insights.push(`Projected savings rate: ${savingsRate.toFixed(0)}%. Aim for 20%+ for financial health.`);
+  else if (savingsRate >= 30) insights.push(`Strong ${savingsRate.toFixed(0)}% projected savings rate. You're building wealth.`);
 
-  const tooltipStyle = { background: '#1a1f2e', border: '1px solid #374151', borderRadius: '12px', fontSize: '12px', color: '#f0f4f8' };
+  const tooltipStyle = { background: '#111827', border: '1px solid #374151', borderRadius: '12px', fontSize: '12px', color: '#f0f4f8', boxShadow: '0 10px 40px rgba(0,0,0,0.5)', padding: '10px 14px' };
+  const tLbl = { color: '#94a3b8', fontWeight: 600 as const, fontSize: '11px', marginBottom: '4px' };
+  const tItm = { color: '#f0f4f8', fontSize: '13px', fontWeight: 700 as const };
 
   // Impact simulator data
   const impulseSpending = monthTotal > 0 ? monthTotal * 0.4 : monthlyBudget * 0.15; // estimated impulse = 40% of spend
@@ -444,7 +465,7 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
                   <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={3} dataKey="value" stroke="none">
                     {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                   </Pie>
-                  <Tooltip contentStyle={tooltipStyle} formatter={(val: number) => [`Rs.${val.toFixed(0)}`, '']} />
+                  <Tooltip contentStyle={tooltipStyle} labelStyle={tLbl} itemStyle={tItm} formatter={(val: number) => [`Rs.${val.toFixed(0)}`, '']} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -464,18 +485,18 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
             <div className="space-y-4">
               <div className="bg-background/50 rounded-xl p-4 border border-border/30">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Planned monthly savings</span>
-                  <span className={`text-xl font-black ${estimatedMonthlySave > 0 ? 'text-primary' : 'text-destructive'}`}>
-                    Rs.{estimatedMonthlySave.toLocaleString()}
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Projected monthly savings</span>
+                  <span className={`text-xl font-black ${projectedMonthlySavings > 0 ? 'text-primary' : 'text-destructive'}`}>
+                    Rs.{Math.round(projectedMonthlySavings).toLocaleString()}
                   </span>
                 </div>
                 <div className="w-full bg-card rounded-full h-2">
                   <div
-                    className={`h-full rounded-full transition-all ${estimatedMonthlySave > 0 ? 'bg-gradient-to-r from-primary to-accent' : 'bg-destructive'}`}
+                    className={`h-full rounded-full transition-all ${projectedMonthlySavings > 0 ? 'bg-gradient-to-r from-primary to-accent' : 'bg-destructive'}`}
                     style={{ width: `${Math.min(Math.max(savingsRate, 0), 100)}%` }}
                   />
                 </div>
-                <p className="text-xs text-muted-foreground mt-1.5">{savingsRate.toFixed(0)}% of income saved</p>
+                <p className="text-xs text-muted-foreground mt-1.5">{savingsRate.toFixed(0)}% of income saved (based on spending pace)</p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -552,7 +573,7 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
                   <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={40} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(val: number) => [`Rs.${val.toFixed(0)}`, 'Spent']} />
+                  <Tooltip contentStyle={tooltipStyle} labelStyle={tLbl} itemStyle={tItm} formatter={(val: number) => [`Rs.${val.toFixed(0)}`, 'Spent']} />
                   <Area type="monotone" dataKey="amount" stroke="#10b981" strokeWidth={2} fill="url(#areaGrad)" />
                 </AreaChart>
               </ResponsiveContainer>
@@ -567,7 +588,7 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
                   <XAxis dataKey="week" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={40} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(val: number) => [`Rs.${val.toFixed(0)}`, 'Spent']} />
+                  <Tooltip contentStyle={tooltipStyle} labelStyle={tLbl} itemStyle={tItm} formatter={(val: number) => [`Rs.${val.toFixed(0)}`, 'Spent']} />
                   <Bar dataKey="amount" fill="#10b981" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -585,7 +606,7 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
                   <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={40} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(val: number) => [`Rs.${val.toFixed(0)}`, 'Spent']} />
+                  <Tooltip contentStyle={tooltipStyle} labelStyle={tLbl} itemStyle={tItm} formatter={(val: number) => [`Rs.${val.toFixed(0)}`, 'Spent']} />
                   <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
                     {timeData.map((_, i) => <Cell key={i} fill={['#fbbf24', '#3b82f6', '#8b5cf6', '#6b7280'][i]} />)}
                   </Bar>
@@ -595,17 +616,43 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="bg-card/80 backdrop-blur-sm border border-border/50 rounded-2xl p-6">
-            <h3 className="text-sm font-bold text-foreground mb-4 uppercase tracking-wider">Behavioral Insights</h3>
-            <div className="space-y-3">
-              {insights.map((insight, i) => (
-                <div key={i} className="flex gap-3 items-start">
-                  <div className="w-6 h-6 rounded-full bg-primary/15 flex-shrink-0 flex items-center justify-center mt-0.5">
-                    <span className="text-xs font-bold text-primary">{i + 1}</span>
-                  </div>
-                  <p className="text-sm text-foreground/80 leading-relaxed">{insight}</p>
-                </div>
-              ))}
+            <div className="flex items-center gap-2 mb-4">
+              <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
+                {gemmaAnalysis?.source === 'gemma-3-27b' ? 'Gemma AI Analysis' : 'Behavioral Insights'}
+              </h3>
+              {gemmaAnalysis?.source === 'gemma-3-27b' && (
+                <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-full font-bold">GEMMA 3 27B</span>
+              )}
             </div>
+            {gemmaLoading ? (
+              <div className="flex items-center gap-3 py-8">
+                <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <p className="text-sm text-muted-foreground">Gemma is analyzing your spending patterns...</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {(gemmaAnalysis?.insights || insights).map((insight: string, i: number) => (
+                  <div key={i} className="flex gap-3 items-start">
+                    <div className="w-6 h-6 rounded-full bg-primary/15 flex-shrink-0 flex items-center justify-center mt-0.5">
+                      <span className="text-xs font-bold text-primary">{i + 1}</span>
+                    </div>
+                    <p className="text-sm text-foreground/80 leading-relaxed">{insight}</p>
+                  </div>
+                ))}
+                {gemmaAnalysis?.monthEndForecast && (
+                  <div className="mt-3 pt-3 border-t border-border/20">
+                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Month-End Forecast</p>
+                    <p className="text-sm text-foreground/80">{gemmaAnalysis.monthEndForecast}</p>
+                  </div>
+                )}
+                {gemmaAnalysis?.savingsAdvice && (
+                  <div className="mt-2">
+                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Savings Advice</p>
+                    <p className="text-sm text-primary/90 font-medium">{gemmaAnalysis.savingsAdvice}</p>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="mt-5 pt-4 border-t border-border/30">
               <div className="flex items-center gap-2 mb-2">
