@@ -367,31 +367,37 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
     dailyData.push({ day: dayLabel, amount: dayTotal });
   }
 
-  // Weekly bar chart (last 4 weeks)
+  // FIXED: Weekly bar chart (last 4 weeks) - now includes today's expenses
   const weeklyData: { week: string; amount: number }[] = [];
   for (let w = 3; w >= 0; w--) {
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - (w + 1) * 7);
+    weekStart.setHours(0, 0, 0, 0);
     const weekEnd = new Date();
     weekEnd.setDate(weekEnd.getDate() - w * 7);
+    weekEnd.setHours(23, 59, 59, 999);
     const weekTotal = expenses.filter((e: any) => {
       const d = new Date(e.date);
-      return d >= weekStart && d < weekEnd;
+      return d >= weekStart && d <= weekEnd;
     }).reduce((s: number, e: any) => s + e.amount, 0);
     weeklyData.push({ week: `Week ${4 - w}`, amount: weekTotal });
   }
 
-  // Time of day analysis for bar chart
+  // FIXED: Time of day analysis for bar chart - corrected overnight logic
   const hourBuckets = [
     { label: '6am-12pm', min: 6, max: 12 },
     { label: '12pm-5pm', min: 12, max: 17 },
     { label: '5pm-9pm', min: 17, max: 21 },
-    { label: '9pm-6am', min: 21, max: 30 },
+    { label: '9pm-6am', min: 21, max: 6 }, // Changed max from 30 to 6
   ];
   const timeData = hourBuckets.map(({ label, min, max }) => {
     const total = expenses.filter((e: any) => {
       const h = new Date(e.date).getHours();
-      return max <= 24 ? (h >= min && h < max) : (h >= min || h < max - 24);
+      // FIXED: Proper overnight logic
+      if (label === '9pm-6am') {
+        return (h >= 21 && h <= 23) || (h >= 0 && h < 6);
+      }
+      return h >= min && h < max;
     }).reduce((s: number, e: any) => s + e.amount, 0);
     return { time: label, amount: total };
   });
@@ -399,8 +405,12 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
   // Savings tracker — project full month using actual spending pace
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const daysElapsed = Math.max(now.getDate(), 1);
-  const daysRemaining = Math.max(daysInMonth - daysElapsed, 1); // at least 1 to avoid division by zero
-  const projectedMonthSpending = (monthTotal / daysElapsed) * daysInMonth;
+  
+  // FIXED: Added safeguard for early month projections (require at least 3 days)
+  const projectedMonthSpending = daysElapsed >= 3 
+    ? (monthTotal / daysElapsed) * daysInMonth 
+    : monthTotal; // Use actual spending if less than 3 days
+  
   const projectedMonthlySavings = Math.max(monthlyIncome - projectedMonthSpending, 0);
   const savingsTarget = parseInt(profile.savingsTarget || '100000');
   const savingsGoal = profile.savingsGoal || 'emergency';
@@ -431,8 +441,8 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
   const tLbl = { color: '#94a3b8', fontWeight: 600 as const, fontSize: '11px', marginBottom: '4px' };
   const tItm = { color: '#f0f4f8', fontSize: '13px', fontWeight: 700 as const };
 
-  // Impact simulator data
-  const impulseSpending = monthTotal > 0 ? monthTotal * 0.4 : monthlyBudget * 0.15; // estimated impulse = 40% of spend
+  // FIXED: Impulse spending calculation - now consistent
+  const impulseSpending = monthTotal * 0.4; // Always 40% of actual spending
   const impulseYearly = impulseSpending * 12;
   const withIntervention = impulseYearly * 0.4; // 60% reduction
   const potentialSavings = impulseYearly - withIntervention;
@@ -497,6 +507,9 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1.5">{savingsRate.toFixed(0)}% of income saved (based on spending pace)</p>
+                {daysElapsed < 3 && (
+                  <p className="text-xs text-yellow-500 mt-1">⚠️ Early month estimate - will be more accurate after 3+ days</p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -507,7 +520,16 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
                 </div>
                 <div className="bg-background/50 rounded-xl p-3 border border-border/30 text-center">
                   <p className="text-xs text-muted-foreground mb-1">ETA</p>
-                  <p className="text-sm font-bold">{monthsToGoal === Infinity ? '--' : monthsToGoal > 12 ? `${(monthsToGoal / 12).toFixed(1)} yr` : `${monthsToGoal} mo`}</p>
+                  {/* FIXED: Cap absurd year displays */}
+                  <p className="text-sm font-bold">
+                    {monthsToGoal === Infinity 
+                      ? '--' 
+                      : monthsToGoal > 120 
+                      ? '>10 yr' 
+                      : monthsToGoal > 12 
+                      ? `${(monthsToGoal / 12).toFixed(1)} yr` 
+                      : `${monthsToGoal} mo`}
+                  </p>
                   <p className="text-xs text-muted-foreground">at current rate</p>
                 </div>
               </div>
