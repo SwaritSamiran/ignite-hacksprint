@@ -1,0 +1,301 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Geist', system-ui, sans-serif;
+  --color-background: var(--t-bg, #0a0e14);
+  --color-foreground: var(--t-fg, #f0f4f8);
+  --color-primary: var(--t-primary, #10b981);
+  --color-secondary: var(--t-secondary, #fbbf24);
+  --color-accent: var(--t-accent, #34d399);
+  --color-muted: var(--t-muted, #1e293b);
+  --color-muted-foreground: var(--t-muted-fg, #94a3b8);
+  --color-border: var(--t-border, #1e293b);
+  --color-destructive: var(--t-destructive, #ef4444);
+  --color-card: var(--t-card, #111827);
+  --color-primary-foreground: var(--t-primary-fg, #0a0e14);
+}
+
+/* ═══ DARK THEME (default) ═══ */
+:root {
+  --t-bg: #0a0e14;
+  --t-fg: #f0f4f8;
+  --t-card: #111827;
+  --t-border: #1e293b;
+  --t-muted: #1e293b;
+  --t-muted-fg: #94a3b8;
+  --t-primary: #10b981;
+  --t-accent: #34d399;
+  --t-secondary: #fbbf24;
+  --t-destructive: #ef4444;
+  --t-primary-fg: #0a0e14;
+}
+
+/* ═══ LIGHT THEME ═══ */
+[data-theme="light"] {
+  --t-bg: #f8fafc;
+  --t-fg: #0f172a;
+  --t-card: #ffffff;
+  --t-border: #e2e8f0;
+  --t-muted: #f1f5f9;
+  --t-muted-fg: #64748b;
+  --t-primary: #059669;
+  --t-accent: #10b981;
+  --t-secondary: #d97706;
+  --t-destructive: #dc2626;
+  --t-primary-fg: #ffffff;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  body {
+    background: linear-gradient(-45deg, var(--color-background), var(--color-card), var(--color-background), var(--color-card));
+    background-size: 400% 400%;
+    animation: slide-gradient 15s ease infinite;
+  }
+
+  [data-theme="light"] body {
+    background: linear-gradient(135deg, #f8fafc 0%, #ecfdf5 25%, #f0fdf4 50%, #f8fafc 75%, #ecfdf5 100%);
+    background-size: 400% 400%;
+    animation: slide-gradient 20s ease infinite;
+  }
+}
+
+@keyframes slide-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes float-subtle {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(-8px) scale(1.02);
+  }
+}
+
+@keyframes gemma-bounce {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+@keyframes gemma-pulse-happy {
+  0%, 100% {
+    box-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 60px rgba(52, 211, 153, 0.7);
+  }
+}
+
+@keyframes gemma-pulse-warning {
+  0%, 100% {
+    box-shadow: 0 0 30px rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 60px rgba(251, 191, 36, 0.7);
+  }
+}
+
+@keyframes gemma-pulse-angry {
+  0%, 100% {
+    box-shadow: 0 0 30px rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 60px rgba(248, 113, 113, 0.8);
+  }
+}
+
+@keyframes float-gentle {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-15px);
+  }
+}
+
+.gemma-happy {
+  animation: gemma-bounce 3s ease-in-out infinite;
+  animation-name: float-gentle;
+}
+
+.gemma-happy-glow {
+  animation: gemma-pulse-happy 2s ease-in-out infinite;
+  border-radius: 9999px;
+}
+
+.gemma-warning-glow {
+  animation: gemma-pulse-warning 2s ease-in-out infinite;
+  border-radius: 9999px;
+}
+
+.gemma-angry-glow {
+  animation: gemma-pulse-angry 2s ease-in-out infinite;
+  border-radius: 9999px;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes float-delayed {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-15px);
+  }
+}
+
+@keyframes drift-left {
+  0% {
+    transform: translateX(0px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-100px);
+    opacity: 0;
+  }
+}
+
+@keyframes drift-right {
+  0% {
+    transform: translateX(0px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(100px);
+    opacity: 0;
+  }
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(52, 211, 153, 0.6);
+  }
+}
+
+@keyframes shine {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.float-delayed {
+  animation: float-delayed 4s ease-in-out infinite;
+  animation-delay: 0.5s;
+}
+
+.drift-left {
+  animation: drift-left 3s ease-in infinite;
+}
+
+.drift-right {
+  animation: drift-right 3s ease-in infinite;
+}
+
+.glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+.shine {
+  background: linear-gradient(90deg, #10b981, #34d399, #10b981);
+  background-size: 1000px 100%;
+  animation: shine 3s infinite;
+}
+
+/* Custom slider styling */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(to right, var(--color-primary), var(--color-accent));
+  outline: none;
+  opacity: 0.85;
+  transition: opacity 0.2s;
+  cursor: pointer;
+}
+.slider:hover {
+  opacity: 1;
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  border: 3px solid var(--color-background);
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.7);
+}
+.slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  border: 3px solid var(--color-background);
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+}
+
+/* Insights overlay animation */
+@keyframes fade-up-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-in {
+  animation: fade-up-in 0.35s ease-out;
+}
+
+/* Smooth theme transitions */
+.bg-card, .bg-background, .bg-card\/30, .border-border, .text-foreground, .text-muted-foreground {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
