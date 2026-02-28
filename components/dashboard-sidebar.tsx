@@ -196,20 +196,37 @@ function ProfilePanel() {
       {isEditing ? (
         <div className="space-y-4">
           {[
-            { label: 'Monthly Income', key: 'monthlyIncome' },
-            { label: 'Monthly Budget', key: 'monthlyBudget' },
-            { label: 'Weekly Limit', key: 'weeklyLimit' },
-          ].map(({ label, key }) => (
+            { label: 'Monthly Income', key: 'monthlyIncome', type: 'number' },
+            { label: 'Monthly Budget', key: 'monthlyBudget', type: 'number' },
+            { label: 'Weekly Limit', key: 'weeklyLimit', type: 'number' },
+            { label: 'Savings Target (Rs.)', key: 'savingsTarget', type: 'number' },
+          ].map(({ label, key, type }) => (
             <div key={key}>
               <label className="block text-xs font-semibold mb-1">{label}</label>
               <input
-                type="number"
+                type={type}
                 value={editForm[key] || ''}
                 onChange={(e) => setEditForm({ ...editForm, [key]: e.target.value })}
                 className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:border-primary"
               />
             </div>
           ))}
+          <div>
+            <label className="block text-xs font-semibold mb-1">Savings Goal</label>
+            <select
+              value={editForm.savingsGoal || 'emergency'}
+              onChange={(e) => setEditForm({ ...editForm, savingsGoal: e.target.value })}
+              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:border-primary"
+            >
+              <option value="emergency">Emergency Fund</option>
+              <option value="vacation">Vacation</option>
+              <option value="investment">Investment</option>
+              <option value="education">Education</option>
+              <option value="gadget">Gadget</option>
+              <option value="vehicle">Vehicle</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
           <div className="flex gap-2">
             <button onClick={() => setIsEditing(false)} className="flex-1 py-2 px-3 bg-card border border-border rounded-lg text-sm font-semibold hover:bg-primary/10 transition">Cancel</button>
             <button onClick={handleSave} className="flex-1 py-2 px-3 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:shadow-lg transition">Save</button>
@@ -222,10 +239,11 @@ function ProfilePanel() {
             { label: 'Monthly Budget', value: profile.monthlyBudget },
             { label: 'Weekly Limit', value: profile.weeklyLimit },
             { label: 'Savings Goal', value: profile.savingsGoal },
+            { label: 'Savings Target', value: profile.savingsTarget },
           ].map(({ label, value }) => (
             <div key={label} className="bg-background rounded-lg p-3">
               <p className="text-xs text-muted-foreground uppercase tracking-wider">{label}</p>
-              <p className="text-lg font-bold mt-1">{value ? (label !== 'Savings Goal' ? `Rs.${value}` : value) : 'Not set'}</p>
+              <p className="text-lg font-bold mt-1">{value ? (label === 'Savings Goal' ? value : `Rs.${parseInt(value).toLocaleString()}`) : 'Not set'}</p>
             </div>
           ))}
           <button
@@ -467,31 +485,37 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
     dailyData.push({ day: dayLabel, amount: dayTotal });
   }
 
-  // Weekly bar chart (last 4 weeks)
+  // FIXED: Weekly bar chart (last 4 weeks) - now includes today's expenses
   const weeklyData: { week: string; amount: number }[] = [];
   for (let w = 3; w >= 0; w--) {
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - (w + 1) * 7);
+    weekStart.setHours(0, 0, 0, 0);
     const weekEnd = new Date();
     weekEnd.setDate(weekEnd.getDate() - w * 7);
+    weekEnd.setHours(23, 59, 59, 999);
     const weekTotal = expenses.filter((e: any) => {
       const d = new Date(e.date);
-      return d >= weekStart && d < weekEnd;
+      return d >= weekStart && d <= weekEnd;
     }).reduce((s: number, e: any) => s + e.amount, 0);
     weeklyData.push({ week: `Week ${4 - w}`, amount: weekTotal });
   }
 
-  // Time of day analysis for bar chart
+  // FIXED: Time of day analysis for bar chart - corrected overnight logic
   const hourBuckets = [
     { label: '6am-12pm', min: 6, max: 12 },
     { label: '12pm-5pm', min: 12, max: 17 },
     { label: '5pm-9pm', min: 17, max: 21 },
-    { label: '9pm-6am', min: 21, max: 30 },
+    { label: '9pm-6am', min: 21, max: 6 }, // Changed max from 30 to 6
   ];
   const timeData = hourBuckets.map(({ label, min, max }) => {
     const total = expenses.filter((e: any) => {
       const h = new Date(e.date).getHours();
-      return max <= 24 ? (h >= min && h < max) : (h >= min || h < max - 24);
+      // FIXED: Proper overnight logic
+      if (label === '9pm-6am') {
+        return (h >= 21 && h <= 23) || (h >= 0 && h < 6);
+      }
+      return h >= min && h < max;
     }).reduce((s: number, e: any) => s + e.amount, 0);
     return { time: label, amount: total };
   });
@@ -499,8 +523,12 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
   // Savings tracker — project full month using actual spending pace
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const daysElapsed = Math.max(now.getDate(), 1);
-  const daysRemaining = Math.max(daysInMonth - daysElapsed, 1); // at least 1 to avoid division by zero
-  const projectedMonthSpending = (monthTotal / daysElapsed) * daysInMonth;
+  
+  // FIXED: Added safeguard for early month projections (require at least 3 days)
+  const projectedMonthSpending = daysElapsed >= 3 
+    ? (monthTotal / daysElapsed) * daysInMonth 
+    : monthTotal; // Use actual spending if less than 3 days
+  
   const projectedMonthlySavings = Math.max(monthlyIncome - projectedMonthSpending, 0);
   const savingsTarget = parseInt(profile.savingsTarget || '100000');
   const savingsGoal = profile.savingsGoal || 'emergency';
@@ -531,11 +559,13 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
   const tLbl = { color: '#94a3b8', fontWeight: 600 as const, fontSize: '11px', marginBottom: '4px' };
   const tItm = { color: '#f0f4f8', fontSize: '13px', fontWeight: 700 as const };
 
-  // Impact simulator data
-  const impulseSpending = monthTotal > 0 ? monthTotal * 0.4 : monthlyBudget * 0.15; // estimated impulse = 40% of spend
-  const impulseYearly = impulseSpending * 12;
-  const withIntervention = impulseYearly * 0.4; // 60% reduction
-  const potentialSavings = impulseYearly - withIntervention;
+  // Format Rs. amounts: use L for lakhs, K for thousands, or plain number
+  const fmtRs = (v: number) => {
+    const abs = Math.abs(Math.round(v));
+    if (abs >= 100000) return `${(abs / 100000).toFixed(1)}L`;
+    if (abs >= 1000) return `${(abs / 1000).toFixed(abs >= 10000 ? 0 : 1)}K`;
+    return abs.toLocaleString();
+  };
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-start justify-center overflow-y-auto">
@@ -544,7 +574,7 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-black text-foreground">Behavioral Analytics</h1>
-            <p className="text-sm text-muted-foreground mt-1">Pattern analysis, savings tracking, and impact simulation</p>
+            <p className="text-sm text-muted-foreground mt-1">Pattern analysis and savings tracking</p>
           </div>
           <button
             onClick={onClose}
@@ -585,37 +615,37 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
             <div className="space-y-4">
               <div className="bg-background/50 rounded-xl p-4 border border-border/30">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Projected monthly savings</span>
-                  <span className={`text-xl font-black ${projectedMonthlySavings > 0 ? 'text-primary' : 'text-destructive'}`}>
-                    Rs.{Math.round(projectedMonthlySavings).toLocaleString()}
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider">Total remaining</span>
+                  <span className={`text-xl font-black ${budgetRemaining > 0 ? 'text-primary' : 'text-destructive'}`}>
+                    Rs.{Math.round(budgetRemaining).toLocaleString()}
                   </span>
                 </div>
                 <div className="w-full bg-card rounded-full h-2">
                   <div
-                    className={`h-full rounded-full transition-all ${projectedMonthlySavings > 0 ? 'bg-gradient-to-r from-primary to-accent' : 'bg-destructive'}`}
-                    style={{ width: `${Math.min(Math.max(savingsRate, 0), 100)}%` }}
+                    className={`h-full rounded-full transition-all ${budgetRemaining > 0 ? 'bg-gradient-to-r from-primary to-accent' : 'bg-destructive'}`}
+                    style={{ width: `${Math.min(Math.max(100 - budgetUsedPct, 0), 100)}%` }}
                   />
                 </div>
-                <p className="text-xs text-muted-foreground mt-1.5">{savingsRate.toFixed(0)}% of income saved (based on spending pace)</p>
+                <p className="text-xs text-muted-foreground mt-1.5">{(100 - budgetUsedPct).toFixed(0)}% of budget remaining</p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-background/50 rounded-xl p-3 border border-border/30 text-center">
                   <p className="text-xs text-muted-foreground mb-1">Goal</p>
                   <p className="text-sm font-bold capitalize">{savingsGoal}</p>
-                  <p className="text-xs text-primary font-semibold">Rs.{savingsTarget >= 100000 ? `${(savingsTarget / 100000).toFixed(1)}L` : `${(savingsTarget / 1000).toFixed(0)}K`}</p>
+                  <p className="text-xs text-primary font-semibold">Rs.{fmtRs(savingsTarget)}</p>
                 </div>
                 <div className="bg-background/50 rounded-xl p-3 border border-border/30 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">ETA</p>
-                  <p className="text-sm font-bold">{monthsToGoal === Infinity ? '--' : monthsToGoal > 12 ? `${(monthsToGoal / 12).toFixed(1)} yr` : `${monthsToGoal} mo`}</p>
-                  <p className="text-xs text-muted-foreground">at current rate</p>
+                  <p className="text-xs text-muted-foreground mb-1">Est. ETA</p>
+                  <p className="text-sm font-bold">{monthsToGoal === Infinity ? '--' : monthsToGoal > 12 ? `~${(monthsToGoal / 12).toFixed(1)} yr` : `~${monthsToGoal} mo`}</p>
+                  <p className="text-xs text-muted-foreground">based on spending pace</p>
                 </div>
               </div>
 
               <div className="bg-background/50 rounded-xl p-3 border border-border/30 space-y-1.5">
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Projected annual savings</span>
-                  <span className="font-bold text-primary">Rs.{projectedAnnual >= 100000 ? `${(projectedAnnual / 100000).toFixed(1)}L` : `${(projectedAnnual / 1000).toFixed(0)}K`}</span>
+                  <span>Est. monthly saving</span>
+                  <span className={`font-bold ${projectedMonthlySavings > 0 ? 'text-primary' : 'text-destructive'}`}>~Rs.{Math.round(projectedMonthlySavings).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>Monthly income</span>
@@ -627,41 +657,15 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>Projected month-end spending</span>
-                  <span className={`font-bold ${projectedMonthSpending > monthlyBudget ? 'text-destructive' : 'text-primary'}`}>Rs.{Math.round(projectedMonthSpending).toLocaleString()}</span>
+                  <span className={`font-bold ${projectedMonthSpending > monthlyBudget ? 'text-destructive' : 'text-primary'}`}>~Rs.{Math.round(projectedMonthSpending).toLocaleString()}</span>
                 </div>
+                <p className="text-[10px] text-muted-foreground/60 pt-1 italic">*Estimates based on your spending pace so far this month</p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Row 2: Impact Simulator (inspired by the HTML reference) */}
-        <div className="bg-card/80 backdrop-blur-sm border border-border/50 rounded-2xl p-6">
-          <h3 className="text-sm font-bold text-foreground mb-5 uppercase tracking-wider text-center">Future Impact Simulator</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <div className="bg-destructive/10 border-2 border-destructive/30 rounded-xl p-5 text-center">
-              <h4 className="text-sm font-bold text-destructive mb-3">Continue Current Pattern</h4>
-              <p className="text-3xl font-black text-destructive">Rs.{impulseYearly >= 100000 ? `${(impulseYearly / 100000).toFixed(1)}L` : `${(impulseYearly / 1000).toFixed(0)}K`}</p>
-              <p className="text-xs text-muted-foreground mt-1">Lost to impulse spending / year</p>
-              <p className="text-xl font-bold text-destructive/70 mt-3">Rs.{(impulseYearly * 5) >= 100000 ? `${((impulseYearly * 5) / 100000).toFixed(1)}L` : `${((impulseYearly * 5) / 1000).toFixed(0)}K`}</p>
-              <p className="text-xs text-muted-foreground">in 5 years</p>
-            </div>
-            <div className="bg-primary/10 border-2 border-primary/30 rounded-xl p-5 text-center">
-              <h4 className="text-sm font-bold text-primary mb-3">With Gemma Intervention</h4>
-              <p className="text-3xl font-black text-primary">Rs.{withIntervention >= 100000 ? `${(withIntervention / 100000).toFixed(1)}L` : `${(withIntervention / 1000).toFixed(0)}K`}</p>
-              <p className="text-xs text-muted-foreground mt-1">Reduced spending / year (60% cut)</p>
-              <p className="text-xl font-bold text-primary/70 mt-3">Rs.{(withIntervention * 5) >= 100000 ? `${((withIntervention * 5) / 100000).toFixed(1)}L` : `${((withIntervention * 5) / 1000).toFixed(0)}K`}</p>
-              <p className="text-xs text-muted-foreground">in 5 years</p>
-            </div>
-            <div className="bg-gradient-to-br from-primary/20 to-accent/20 border-2 border-primary/40 rounded-xl p-5 text-center flex flex-col justify-center">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Potential Savings</p>
-              <p className="text-4xl font-black text-primary">Rs.{potentialSavings >= 100000 ? `${(potentialSavings / 100000).toFixed(1)}L` : `${(potentialSavings / 1000).toFixed(0)}K`}</p>
-              <p className="text-xs text-muted-foreground mt-1">per year with intervention</p>
-              <p className="text-xs text-primary/80 mt-3 font-medium">Enough for a vacation, emergency fund, or investment</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Row 3: Daily trend + Weekly bars */}
+        {/* Row 2: Daily trend + Weekly bars */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div className="bg-card/80 backdrop-blur-sm border border-border/50 rounded-2xl p-6">
             <h3 className="text-sm font-bold text-foreground mb-4 uppercase tracking-wider">14-Day Spending Trend</h3>
