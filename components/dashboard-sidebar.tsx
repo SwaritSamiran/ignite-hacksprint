@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, AreaChart, Area, CartesianGrid } from 'recharts';
+import { getSupabaseClient } from '@/lib/supabase';
 
 export default function DashboardSidebar() {
   const router = useRouter();
@@ -23,7 +24,11 @@ export default function DashboardSidebar() {
     document.documentElement.setAttribute('data-theme', next);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Sign out from Supabase
+    const supabase = getSupabaseClient();
+    await supabase.auth.signOut();
+    // Clear localStorage bridge
     localStorage.removeItem('finguard_currentUser');
     router.push('/');
   };
@@ -120,20 +125,66 @@ function SidebarButton({ icon, label, active, onClick }: { icon: string; label: 
 }
 
 function ProfilePanel() {
-  const [profile, setProfile] = useState(() => {
-    const userEmail = localStorage.getItem('finguard_currentUser');
-    return JSON.parse(localStorage.getItem(`finguard_profile_${userEmail}`) || '{}');
-  });
+  const [profile, setProfile] = useState<Record<string, string>>({});
   const [isEditing, setIsEditing] = useState(false);
-  const [editForm, setEditForm] = useState(profile);
+  const [editForm, setEditForm] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
 
-  const handleSave = () => {
-    const userEmail = localStorage.getItem('finguard_currentUser');
-    localStorage.setItem(`finguard_profile_${userEmail}`, JSON.stringify(editForm));
-    setProfile(editForm);
+  useEffect(() => {
+    const loadProfile = async () => {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) { setLoading(false); return; }
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .single();
+
+      if (data) {
+        const p = {
+          monthlyIncome: String(data.monthly_income),
+          monthlyBudget: String(data.monthly_budget),
+          weeklyLimit: String(data.weekly_limit),
+          savingsGoal: data.savings_goal || 'emergency',
+          savingsTarget: String(data.savings_target),
+        };
+        setProfile(p);
+        setEditForm(p);
+      }
+      setLoading(false);
+    };
+    loadProfile();
+  }, []);
+
+  const handleSave = async () => {
     setIsEditing(false);
+    setProfile(editForm);
+
+    try {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+        const { error } = await supabase.from('profiles').upsert({
+          user_id: session.user.id,
+          monthly_income: parseFloat(editForm.monthlyIncome) || 50000,
+          monthly_budget: parseFloat(editForm.monthlyBudget) || 30000,
+          savings_goal: editForm.savingsGoal || 'emergency',
+          savings_target: parseFloat(editForm.savingsTarget) || 100000,
+        }, { onConflict: 'user_id' });
+        if (error) console.error('Failed to save profile to Supabase:', error);
+      }
+    } catch (err) {
+      console.error('Error saving profile to Supabase:', err);
+    }
+
     window.location.reload();
   };
+
+  if (loading) {
+    return <div className="p-6 text-center text-muted-foreground text-sm">Loading profile...</div>;
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -192,6 +243,7 @@ function ProfilePanel() {
 function CalendarPanel() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedDayExpenses, setSelectedDayExpenses] = useState<any[]>([]);
+  const [allExpenses, setAllExpenses] = useState<any[]>([]);
 
   const now = new Date();
   const year = now.getFullYear();
@@ -199,9 +251,21 @@ function CalendarPanel() {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfWeek = new Date(year, month, 1).getDay();
 
-  // Get all expenses to mark days with spending
-  const userEmail = typeof window !== 'undefined' ? localStorage.getItem('finguard_currentUser') : null;
-  const allExpenses = userEmail ? JSON.parse(localStorage.getItem(`finguard_expenses_${userEmail}`) || '[]') : [];
+  // Load expenses from Supabase
+  useEffect(() => {
+    const load = async () => {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) return;
+      const { data } = await supabase
+        .from('expenses')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('date', { ascending: false });
+      if (data) setAllExpenses(data.map(e => ({ id: e.id, amount: Number(e.amount), category: e.category, description: e.description || '', date: e.date })));
+    };
+    load();
+  }, []);
 
   const getExpensesForDay = (day: number) => {
     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -289,16 +353,41 @@ function CalendarPanel() {
 function InsightsOverlay({ onClose }: { onClose: () => void }) {
   const [gemmaAnalysis, setGemmaAnalysis] = useState<any>(null);
   const [gemmaLoading, setGemmaLoading] = useState(true);
+  const [data, setData] = useState<{ expenses: any[]; profile: any } | null>(null);
+  const [dataLoading, setDataLoading] = useState(true);
 
-  const data = useMemo(() => {
-    const userEmail = localStorage.getItem('finguard_currentUser');
-    if (!userEmail) return null;
-    const expenses = JSON.parse(localStorage.getItem(`finguard_expenses_${userEmail}`) || '[]');
-    const profile = JSON.parse(localStorage.getItem(`finguard_profile_${userEmail}`) || '{}');
-    return { expenses, profile, userEmail };
+  // Load profile + expenses from Supabase
+  useEffect(() => {
+    const loadData = async () => {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) { setDataLoading(false); return; }
+
+      const [profileRes, expensesRes] = await Promise.all([
+        supabase.from('profiles').select('*').eq('user_id', session.user.id).single(),
+        supabase.from('expenses').select('*').eq('user_id', session.user.id).order('date', { ascending: false }),
+      ]);
+
+      const profile = profileRes.data ? {
+        monthlyIncome: String(profileRes.data.monthly_income),
+        monthlyBudget: String(profileRes.data.monthly_budget),
+        weeklyLimit: String(profileRes.data.weekly_limit),
+        savingsGoal: profileRes.data.savings_goal || 'emergency',
+        savingsTarget: String(profileRes.data.savings_target),
+      } : {};
+
+      const expenses = (expensesRes.data || []).map((e: any) => ({
+        id: e.id, amount: Number(e.amount), category: e.category, description: e.description || '', date: e.date,
+      }));
+
+      setData({ expenses, profile });
+      setDataLoading(false);
+    };
+    loadData();
   }, []);
 
   useEffect(() => {
+    if (dataLoading) return;
     if (!data || data.expenses.length === 0) { setGemmaLoading(false); return; }
     const { expenses: exps, profile: prof } = data;
     const inc = parseInt(prof.monthlyIncome || '50000');
@@ -313,9 +402,20 @@ function InsightsOverlay({ onClose }: { onClose: () => void }) {
     fetch('/api/insights', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ monthlyIncome: inc, monthlyBudget: bud, monthTotal: mTot, categoryBreakdown: cats, daysElapsed: de, daysInMonth: dim, savingsGoal: prof.savingsGoal || 'emergency', savingsTarget: parseInt(prof.savingsTarget || '100000'), transactionCount: mExps.length }),
+      body: JSON.stringify({ monthly_income: inc, monthly_budget: bud, month_total: mTot, category_breakdown: cats, days_elapsed: de, days_in_month: dim, savings_goal: prof.savingsGoal || 'emergency', savings_target: parseInt(prof.savingsTarget || '100000'), transaction_count: mExps.length }),
     }).then(r => r.json()).then(r => setGemmaAnalysis(r)).catch(() => {}).finally(() => setGemmaLoading(false));
-  }, [data]);
+  }, [data, dataLoading]);
+
+  if (dataLoading) {
+    return (
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-4">
+        <div className="bg-card border border-border rounded-2xl p-10 max-w-md text-center shadow-2xl">
+          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground text-sm">Loading your data...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!data || data.expenses.length === 0) {
     return (

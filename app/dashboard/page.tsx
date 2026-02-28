@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { GemmaCharacter } from '@/components/gemma-character';
 import DashboardSidebar from '@/components/dashboard-sidebar';
+import { getSupabaseClient } from '@/lib/supabase';
 
 interface Expense {
   id: string;
@@ -25,6 +26,8 @@ interface Intervention {
 export default function DashboardPage() {
   const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [monthlySpending, setMonthlySpending] = useState(0);
   const [monthlyBudget, setMonthlyBudget] = useState(30000);
@@ -36,29 +39,65 @@ export default function DashboardPage() {
   const [intervention, setIntervention] = useState<Intervention | null>(null);
 
   useEffect(() => {
-    const currentUser = localStorage.getItem('finguard_currentUser');
-    if (!currentUser) {
-      router.push('/auth/login');
-      return;
-    }
-    setIsLoggedIn(true);
+    const checkAuth = async () => {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
 
-    const profile = JSON.parse(localStorage.getItem(`finguard_profile_${currentUser}`) || '{}');
-    if (profile.monthlyBudget) setMonthlyBudget(parseInt(profile.monthlyBudget));
+      if (!session?.user) {
+        router.push('/auth/login');
+        return;
+      }
 
-    const savedExpenses: Expense[] = JSON.parse(localStorage.getItem(`finguard_expenses_${currentUser}`) || '[]');
-    setExpenses(savedExpenses);
+      const userEmail = session.user.email!;
+      const uid = session.user.id;
 
-    const now = new Date();
-    const monthlyTotal = savedExpenses
-      .filter((exp) => {
-        const d = new Date(exp.date);
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-      })
-      .reduce((sum, exp) => sum + exp.amount, 0);
+      setCurrentUser(userEmail);
+      setUserId(uid);
+      setIsLoggedIn(true);
 
-    setMonthlySpending(monthlyTotal);
-    setSpendingPercentage((monthlyTotal / parseInt(profile.monthlyBudget || '30000')) * 100);
+      // --- Load profile from Supabase (single source of truth) ---
+      let budget = 30000;
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', uid)
+        .single();
+
+      if (profileData) {
+        budget = Number(profileData.monthly_budget);
+        setMonthlyBudget(budget);
+      }
+
+      // --- Load expenses from Supabase (single source of truth) ---
+      const { data: expensesData } = await supabase
+        .from('expenses')
+        .select('*')
+        .eq('user_id', uid)
+        .order('date', { ascending: false });
+
+      const loadedExpenses: Expense[] = (expensesData || []).map(e => ({
+        id: e.id,
+        amount: Number(e.amount),
+        category: e.category,
+        description: e.description || '',
+        date: e.date,
+      }));
+
+      setExpenses(loadedExpenses);
+
+      const now = new Date();
+      const monthlyTotal = loadedExpenses
+        .filter((exp) => {
+          const d = new Date(exp.date);
+          return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        })
+        .reduce((sum, exp) => sum + exp.amount, 0);
+
+      setMonthlySpending(monthlyTotal);
+      setSpendingPercentage((monthlyTotal / budget) * 100);
+    };
+
+    checkAuth();
   }, [router]);
 
   // --- THE INTERVENTION FLOW ---
@@ -79,9 +118,14 @@ export default function DashboardPage() {
           amount: parseFloat(expenseForm.amount),
           category: expenseForm.category,
           description: expenseForm.description,
-          monthlyBudget,
-          monthlySpending,
-          recentExpenses: expenses.slice(-20), // Last 20 expenses for context
+          monthly_budget: monthlyBudget,
+          monthly_spending: monthlySpending,
+          recent_expenses: expenses.slice(-20).map(e => ({
+            amount: e.amount,
+            category: e.category,
+            description: e.description || '',
+            date: e.date,
+          })),
         }),
       });
 
@@ -99,8 +143,7 @@ export default function DashboardPage() {
     }
   };
 
-  const confirmExpense = () => {
-    const currentUser = localStorage.getItem('finguard_currentUser');
+  const confirmExpense = async () => {
     if (!currentUser) return;
 
     const newExpense: Expense = {
@@ -111,9 +154,31 @@ export default function DashboardPage() {
       date: new Date().toISOString(),
     };
 
+    // Insert into Supabase
+    if (userId) {
+      try {
+        const supabase = getSupabaseClient();
+        const { data: inserted, error } = await supabase.from('expenses').insert({
+          user_id: userId,
+          amount: newExpense.amount,
+          category: newExpense.category,
+          description: newExpense.description,
+          date: newExpense.date,
+        }).select().single();
+
+        if (error) {
+          console.error('Failed to save expense to Supabase:', error);
+        } else if (inserted) {
+          // Use the Supabase-generated UUID as the id
+          newExpense.id = inserted.id;
+        }
+      } catch (err) {
+        console.error('Error saving expense:', err);
+      }
+    }
+
     const updated = [...expenses, newExpense];
     setExpenses(updated);
-    localStorage.setItem(`finguard_expenses_${currentUser}`, JSON.stringify(updated));
 
     const newTotal = monthlySpending + newExpense.amount;
     setMonthlySpending(newTotal);
@@ -128,16 +193,25 @@ export default function DashboardPage() {
     setIntervention(null);
   };
 
-  const deleteExpense = (id: string) => {
-    const currentUser = localStorage.getItem('finguard_currentUser');
+  const deleteExpense = async (id: string) => {
     if (!currentUser) return;
 
     const exp = expenses.find(e => e.id === id);
     if (!exp) return;
 
+    // Delete from Supabase
+    if (userId) {
+      try {
+        const supabase = getSupabaseClient();
+        const { error } = await supabase.from('expenses').delete().eq('id', id);
+        if (error) console.error('Failed to delete expense from Supabase:', error);
+      } catch (err) {
+        console.error('Error deleting expense:', err);
+      }
+    }
+
     const updated = expenses.filter(e => e.id !== id);
     setExpenses(updated);
-    localStorage.setItem(`finguard_expenses_${currentUser}`, JSON.stringify(updated));
 
     const newTotal = monthlySpending - exp.amount;
     setMonthlySpending(Math.max(newTotal, 0));

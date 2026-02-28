@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { getSupabaseClient } from '@/lib/supabase';
 
 export default function QuestionnairePage() {
   const router = useRouter();
@@ -30,18 +31,35 @@ export default function QuestionnairePage() {
     setMonthlyBudget(clamp(val, 2000, monthlyIncome));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setIsLoading(true);
-    const userEmail = localStorage.getItem('finguard_currentUser');
-    const profile = {
-      monthlyIncome: monthlyIncome.toString(),
-      monthlyBudget: monthlyBudget.toString(),
-      weeklyLimit: Math.round(monthlyBudget / 4).toString(),
-      savingsGoal,
-      savingsTarget: savingsTarget.toString(),
-    };
-    localStorage.setItem(`finguard_profile_${userEmail}`, JSON.stringify(profile));
-    setTimeout(() => router.push('/dashboard'), 400);
+    try {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+
+      if (!userId) {
+        console.error('No authenticated user found');
+        router.push('/auth/login');
+        return;
+      }
+
+      // Save to Supabase — single source of truth
+      const { error } = await supabase.from('profiles').upsert({
+        user_id: userId,
+        monthly_income: monthlyIncome,
+        monthly_budget: monthlyBudget,
+        savings_goal: savingsGoal,
+        savings_target: savingsTarget,
+      }, { onConflict: 'user_id' });
+
+      if (error) console.error('Failed to save profile to Supabase:', error);
+
+      router.push('/dashboard');
+    } catch (err) {
+      console.error('Error saving profile:', err);
+      router.push('/dashboard');
+    }
   };
 
   return (

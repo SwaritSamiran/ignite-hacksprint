@@ -3,6 +3,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { getSupabaseClient } from '@/lib/supabase';
+import { LoginSchema } from '@/lib/schemas';
+import { ZodError } from 'zod';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -10,33 +13,60 @@ export default function LoginPage() {
     email: '',
     password: '',
   });
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    setError(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError(null);
     setIsLoading(true);
 
-    // Simulate API call - in real app, this would be a server action
-    setTimeout(() => {
-      const users = JSON.parse(localStorage.getItem('finguard_users') || '[]');
-      const user = users.find((u: any) => u.email === formData.email && u.password === formData.password);
-      
-      if (!user) {
-        setError('Invalid email or password');
+    try {
+      // Validate form data
+      LoginSchema.parse(formData);
+
+      const supabase = getSupabaseClient();
+
+      // Sign in with Supabase Auth
+      const { data, error: loginError } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
+
+      if (loginError) {
+        setError(loginError.message || 'Invalid email or password');
         setIsLoading(false);
         return;
       }
 
-      localStorage.setItem('finguard_currentUser', formData.email);
+      if (!data.user) {
+        setError('Login failed. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Bridge: set localStorage so dashboard/questionnaire/sidebar can read it
+      localStorage.setItem('finguard_currentUser', data.user.email ?? formData.email);
+
+      // Redirect to dashboard
       router.push('/dashboard');
-    }, 500);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        const messages = err.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ');
+        setError(messages);
+      } else if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unexpected error occurred');
+      }
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -44,7 +74,7 @@ export default function LoginPage() {
       {/* Animated background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 right-1/4 w-72 h-72 bg-primary/15 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-accent/15 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
+        <div className="absolute bottom-0 left-1/4 w-96 h-96 bg-accent/15 rounded-full blur-3xl animate-pulse [animation-delay:1s]"></div>
       </div>
 
       <div className="relative z-10 w-full max-w-md">
@@ -76,6 +106,7 @@ export default function LoginPage() {
               onChange={handleChange}
               placeholder="you@example.com"
               required
+              autoComplete="email"
               className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition"
             />
           </div>
@@ -92,6 +123,7 @@ export default function LoginPage() {
               onChange={handleChange}
               placeholder="••••••••"
               required
+              autoComplete="current-password"
               className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition"
             />
           </div>
@@ -99,17 +131,17 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-3 px-4 bg-gradient-to-r from-primary to-accent text-primary-foreground font-bold rounded-lg hover:shadow-lg hover:shadow-primary/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed mt-6"
+            className="w-full py-3 px-4 bg-gradient-to-r from-primary to-accent text-primary-foreground font-semibold rounded-lg hover:shadow-lg hover:shadow-primary/30 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? 'Logging in...' : 'Login'}
+            {isLoading ? 'Logging in...' : 'Log in'}
           </button>
         </form>
 
         {/* Signup link */}
         <p className="text-center text-sm text-muted-foreground mt-6">
           Don't have an account?{' '}
-          <Link href="/auth/signup" className="text-primary hover:text-accent font-semibold transition">
-            Sign up
+          <Link href="/auth/signup" className="text-primary font-semibold hover:underline">
+            Sign up here
           </Link>
         </p>
       </div>
