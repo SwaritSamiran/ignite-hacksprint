@@ -101,6 +101,11 @@ export async function POST(req: NextRequest) {
 
 IMPORTANT: Each response must be UNIQUE. Vary your tone — sometimes be encouraging, sometimes stern, sometimes use an analogy or metaphor, sometimes ask a rhetorical question. Random seed for variety: ${randomSeed}.
 
+CRITICAL — PRICE SANITY CHECK:
+Before anything else, evaluate whether Rs.${data.amount} is a REASONABLE price for "${data.description || data.category}" in India.
+Typical Indian prices: chai Rs.10-30, coffee Rs.50-200, meal Rs.100-500, burger Rs.80-300, groceries Rs.500-3000, clothes Rs.500-3000, shoes Rs.1000-5000, phone Rs.10000-50000, rent Rs.5000-30000, movie Rs.200-500, auto Rs.30-200, cab Rs.100-800, petrol Rs.500-3000.
+If the amount is 3x+ above the reasonable range for the item, CALL IT OUT DIRECTLY. Say something like "Rs.${data.amount} for a ${data.description || data.category}? That's way above normal pricing." Set severity to "high" or "critical" and recommendation to "caution" or "stop". This overrides budget-based rules.
+
 User's financial snapshot:
 - Monthly budget: Rs.${data.monthlyBudget} | Spent so far: Rs.${data.monthlySpending} (${budgetPct}%) | Left: Rs.${remaining}
 - This purchase: Rs.${data.amount} for ${data.category}${data.description ? ` (${data.description})` : ''}
@@ -110,13 +115,14 @@ User's financial snapshot:
 
 Rules:
 1. Be 2-3 sentences MAX. Be specific — mention actual amounts.
-2. If budget usage is under 50%, be supportive but still mention the numbers.
-3. If 50-80%, gently warn with specific projections.
-4. If over 80%, be firm and protective. Use urgency.
-5. If this pushes over 100%, be very direct — tell them they cannot afford this.
-6. If same category count >= 3, call out the pattern by name.
-7. Pick ONE severity: low, medium, high, or critical.
-8. Pick ONE recommendation: proceed, caution, or stop.
+2. If the PRICE is unreasonable for the item, flag it first. This is your TOP priority.
+3. If budget usage is under 50%, be supportive but still mention the numbers.
+4. If 50-80%, gently warn with specific projections.
+5. If over 80%, be firm and protective. Use urgency.
+6. If this pushes over 100%, be very direct — tell them they cannot afford this.
+7. If same category count >= 3, call out the pattern by name.
+8. Pick ONE severity: low, medium, high, or critical.
+9. Pick ONE recommendation: proceed, caution, or stop.
 
 Respond with ONLY valid JSON (no markdown, no code blocks, no explanation):
 {"severity":"low|medium|high|critical","message":"your unique intervention","recommendation":"proceed|caution|stop","pattern":"null or detected pattern"}`;
